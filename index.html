@@ -593,5 +593,71 @@ document.addEventListener('click',e=>{if(!sid('sw').contains(e.target))clAC()});
 document.addEventListener('keydown',e=>{if(e.key==='/'&&document.activeElement!==SI){e.preventDefault();SI.focus()}});
 
 </script>
+<script>
+/* Read-only Google Sheet synchronisation. Editing access stays in Google Sheets. */
+(function(){
+'use strict';
+const SHEET_ID='13P5kH--6T9Su7bh_yDhD6v_r27JgqNQ7rTvAwuYaVao';
+const keys=['en','ar','gen','mfr','cls','rte','p','op','sz','un','co','cd'];
+const aliases={en:['en','english name','name','drug name'],ar:['ar','arabic name','الاسم العربي','اسم الدواء'],gen:['gen','generic','active ingredient','المادة الفعالة'],mfr:['mfr','manufacturer','الشركة المصنعة'],cls:['cls','class','category','التصنيف'],rte:['rte','route','dosage form','الشكل الدوائي'],p:['p','price','current price','السعر'],op:['op','old price','previous price','السعر السابق'],sz:['sz','size','pack size'],un:['un','unit'],co:['co','country'],cd:['cd','code','drug code']};
+const clean=x=>String(x==null?'':x).trim().toLowerCase();
+const cell=c=>{if(!c)return '';return c.v==null?(c.f||''):c.v};
+const toPrice=x=>{const n=Number(String(x||0).replace(/,/g,''));return Number.isFinite(n)&&n>=0?n:0};
+let settled=false;
+const status=document.createElement('div');
+status.id='sheet-sync-status'; status.style.cssText='background:#e0f2fe;text-align:center;padding:7px 12px;color:#075985;font:700 12px Cairo,Arial,sans-serif';
+status.textContent='جارٍ التحقق من تحديثات قاعدة الأدوية...';
+const hd=document.querySelector('header');if(hd)hd.insertAdjacentElement('afterend',status);
+const script=document.createElement('script');
+const callback='__aliKotbDrugsSheetCallback';
+const timeout=setTimeout(()=>finish('تعذر الوصول إلى Google Sheets؛ يتم عرض نسخة الأدوية المحفوظة.'),18000);
+function finish(msg){if(settled)return;settled=true;clearTimeout(timeout);status.textContent=msg; if(script.parentNode)script.remove();}
+window[callback]=function(response){
+ try{
+  if(response.status!=='ok'||!response.table)throw Error(response.errors?.[0]?.detailed_message||'تعذر قراءة الجدول');
+  const cols=response.table.cols||[], data=response.table.rows||[];
+  // Real Google Sheet: A=English trade name, B=Arabic trade name,
+  // C=active ingredient, D=manufacturer, E=classification,
+  // F=administration route, G=EGP price, H=price category (ignored).
+  // The original website has 12 fields, but this Sheet needs only seven.
+  if(cols.length<7)throw Error('الورقة تحتوي على أقل من 7 أعمدة؛ المطلوب A إلى G');
+  const first=data[0]?.c||[];
+  const firstA=clean(cell(first[0]));
+  const firstG=clean(cell(first[6]));
+  let start=(firstA.includes('الاسم التجاري')||firstA==='en'||firstA.includes('trade name')||firstG.includes('السعر'))?1:0;
+  // If GViz has used row one as its column labels, start stays 0.
+  const mapped=[];
+  for(let i=start;i<data.length;i++){
+    const cs=data[i].c||[];
+    const en=String(cell(cs[0])||'').trim();
+    if(!en || en.includes('الاسم التجاري') || en.toLowerCase()==='en')continue;
+    const price=toPrice(cell(cs[6]));
+    const obj={
+      en:en, ar:String(cell(cs[1])||''),gen:String(cell(cs[2])||''),
+      mfr:String(cell(cs[3])||''),cls:String(cell(cs[4])||''),
+      rte:String(cell(cs[5])||''),p:price,op:0,
+      sz:'',un:'',co:'',cd:''
+    };
+    mapped.push(obj);
+  }
+  if(!mapped.length)throw Error('لم يتم العثور على أدوية في العمود A');
+  // Replace only after successful validation: do not erase the embedded database on failures.
+  DB.splice(0,DB.length,...mapped);
+  sel=null; if(typeof clDet==='function')clDet();
+  const b=DB.filter(d=>d.p>0&&d.p<50).length,mm=DB.filter(d=>d.p>=50&&d.p<=500).length,prem=DB.filter(d=>d.p>500).length;
+  sid('s-tot').textContent=DB.length.toLocaleString();sid('s-b').textContent=b.toLocaleString();sid('s-m').textContent=mm.toLocaleString();sid('s-p').textContent=prem.toLocaleString();
+  sid('s-u').textContent=DB.filter(d=>d.p>0&&d.op>0&&d.p>d.op).length.toLocaleString();
+  sid('s-d').textContent=DB.filter(d=>d.p>0&&d.op>0&&d.p<d.op).length.toLocaleString();
+  sid('hbadge').textContent='✅ '+DB.length.toLocaleString()+' دواء';
+  sid('unavail-cnt').textContent=DB.filter(d=>isUnavail(d)).length.toLocaleString();
+  const q=sid('si').value.trim();if(q.length>=2)doS(q);else buildTbl();
+  finish('تم تحميل '+mapped.length.toLocaleString('en-US')+' دواء من Google Sheets بنجاح. الأسعار السابقة غير متاحة في الورقة الحالية.');
+ }catch(e){finish('تعذر تحميل Google Sheets: '+e.message+' — يتم عرض النسخة المحفوظة.');}
+};
+script.onerror=()=>finish('تعذر الوصول إلى Google Sheets؛ يتم عرض النسخة المحفوظة.');
+script.src='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?tqx='+encodeURIComponent('out:json;responseHandler:'+callback)+'&headers=0&tq='+encodeURIComponent('select *')+'&cacheBust='+Date.now();
+document.head.appendChild(script);
+})();
+</script>
 </body>
 </html>
